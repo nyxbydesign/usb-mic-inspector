@@ -2,7 +2,7 @@
 
 This standalone Android project is a diagnostic prototype. Open changes as draft pull requests against `main` until physical-device acceptance is available.
 
-Run `gradle --no-daemon --max-workers=2 assembleDebug lintDebug` with JDK 21 and Android SDK 35, and run `tests/run-policy-tests.ps1`. The pure Java policy tests use synthetic descriptors and require no phone. Do not count those tests as evidence of real microphone or playback routing.
+Run `./gradlew --no-daemon --max-workers=2 assembleDebug lintDebug` (`.\gradlew.bat` on Windows) with JDK 21 and Android SDK 35, and run `tests/run-policy-tests.ps1`. The app's minimum OS is Android 14/API 34. The pure Java policy tests use synthetic descriptors and require no phone. Do not count those tests as evidence of real microphone or playback routing.
 
 Keep USB interface claims fail-closed and explicitly initiated. Never claim a control, output, mixed or ambiguous interface. Do not start recording, playback or a USB claim automatically. Preserve explicit release controls and recovery warnings. Do not relax safety gates to enable an unverified DAC.
 

@@ -1,0 +1,4 @@
+<resources>
+    <string name="confirm_idle">I confirm no call or other recording is active now.</string>
+    <string name="planned_test">Allow me to deliberately start a short communication test after claiming. I will end it before the 2-minute timeout.</string>
+</resources>
