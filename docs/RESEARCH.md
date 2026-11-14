@@ -1,6 +1,6 @@
 # Android audio and USB routing investigation
 
-Investigated 2026-11-11. Primary sources below describe Android/AOSP and upstream Linux, not an observed Pixel build. The reported handset model is Pixel 8 Pro; no handset or DAC descriptors have been observed by this project.
+Initial source investigation: 2026-11-11; descriptor compatibility update: 2026-11-14. Primary sources below describe Android/AOSP and upstream Linux, not a verified Pixel policy implementation. A subsequently supplied USB descriptor report is used for offline regression checks; it does not establish physical audio routing behavior.
 
 ## Public APIs do not establish a global mic-only override
 
@@ -25,6 +25,8 @@ The read-only helper in `shell-helper/` checks this capability without changing 
 `claimInterface(intf, true)` requests exclusive access and may disconnect the kernel driver. `releaseInterface` releases the claim; the API does not promise reconstruction of the original ALSA/framework routing state. [UsbDeviceConnection reference](https://developer.android.com/reference/android/hardware/usb/UsbDeviceConnection).
 
 Endpoint IN means device-to-host, so an audio isochronous **data** IN endpoint can represent capture. A feedback IN endpoint can belong to playback and must not be treated as capture. Interface numbers, all alternate settings, class/protocol, AC collection membership and terminal links matter; array indexes or direction alone are insufficient. The gate supports only a conservative UAC1 subset; rejection does not mean the DAC is defective. [USB Audio 1.0 specification](https://www.usb.org/sites/default/files/audio10.pdf), [USB host overview](https://developer.android.com/develop/connectivity/usb/host).
+
+The initial parser rejected every additional interface class, including a separate HID interface. Version 0.2 explicitly models one narrow non-boot HID layout alongside the supported audio interfaces. HID descriptors and interrupt endpoints are validated separately and must not share an interface number, endpoint address or AudioControl collection membership with the audio streams. The app never claims or communicates with that HID interface. An interrupt IN endpoint on HID is not microphone capture. Supporting the composite descriptor layout only establishes which capture interface may be offered for a manual experiment. [USB HID 1.11 specification, sections 6 and 7](https://www.usb.org/sites/default/files/hid1_11.pdf).
 
 In upstream Linux v6.1 `sound/usb/card.c`, normally parsed streaming interfaces are claimed with the `USB_AUDIO_IFACE_UNUSED` marker. The disconnect callback returns early for such an interface, whereas a primary/control interface disconnect shuts down the card. This distinction makes a strictly separate capture-interface experiment technically conceivable. It **does not remove the input from Android audio policy** and does not establish fallback, working playback or restoration on a Pixel. Shared state, vendor changes and stale framework registration remain unresolved. [Linux v6.1 card.c](https://raw.githubusercontent.com/torvalds/linux/v6.1/sound/usb/card.c).
 

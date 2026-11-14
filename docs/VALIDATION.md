@@ -1,6 +1,42 @@
 # Validation record
 
-Initial candidate validated on 2026-11-11. This record distinguishes build evidence from physical-device acceptance. The exact source commit is supplied in the repository's draft pull request and task handoff.
+This record distinguishes build evidence, offline descriptor checks and physical-device acceptance. The exact source commits are supplied in the repository's pull requests and release metadata.
+
+## Version 0.3 validation (2026-11-14)
+
+This update changes report evidence only. A synchronized, bounded process-memory journal retains the most recent 96 events, each at most 1,024 characters, with UTC timestamps and a count of discarded older entries. It records requests, preflight failures, claim results, held state, release/timeout/detach cleanup and probe-time state snapshots. Copied/shared reports include this history after Release; process restart clears it. No new persistence, permissions, shell mutation or audio-device behavior was added.
+
+- Passed the affected Android `assembleDebug` and `lintDebug`; final lint reports `No issues found.`
+- Verified APK metadata: version code 3 / `0.3-diagnostic`, unchanged package, min API 34 and target/compile API 35. APK size: 76,049 bytes.
+- Verified the v2 signature and exact certificate continuity with versions 0.1 and 0.2.
+- Reviewed the instrumentation and bounds. The descriptor policy and native claim/release decision paths are unchanged; the existing 285-assertion version 0.2 policy evidence is reused without rerunning that workload.
+- Published and downloaded the existing read-only shell-helper JAR with the same previously validated SHA-256 listed below; no helper source change or rebuild was required.
+
+Version 0.3 APK SHA-256:
+
+```text
+07e508542fed6909774d34425fde0535eee657baa5de0860adcb9e8606bc4ae5
+```
+
+No version 0.3 device test, audio probe or USB claim was performed by the developer. Reporting behavior has build and source-review evidence, not phone acceptance. Receipts are retained locally in ignored `evidence/0.3/`.
+
+## Version 0.2 validation (2026-11-14)
+
+- Reproduced the original HID rejection using the supplied descriptor bytes against the committed version 0.1 parser. The input length and SHA-256 matched the supplied report.
+- Passed 285 descriptor-policy assertions, including the anonymized composite regression selecting capture interface 1, HID-first ordering, existing audio safety tests, and malformed, shared, duplicate and truncated HID cases. AudioControl, playback and HID interfaces are never selected for the claim.
+- Passed `assembleDebug` and `lintDebug`; final lint reports `No issues found.` The existing documented connected-device USB prerequisite detector suppression remains unchanged.
+- Verified the development APK's v2 signature and exact certificate match with version 0.1 for an in-place upgrade. Metadata: package `dev.usbmic.inspector`, version code 2, version `0.2-diagnostic`, min API 34, target/compile API 35. Artifact size: 68,861 bytes.
+- Reviewed the narrow parser changes: optional HID descriptors are validated independently; interface-role and endpoint-address conflicts fail closed; all prior capture, playback and audio-control requirements remain in place. The service and interface-claim operation are unchanged.
+
+Version 0.2 APK SHA-256:
+
+```text
+3664a14711c3b16c5fbc8005ad0c4a271c6490054b526bc0460554413b36da77
+```
+
+Build environment is unchanged from version 0.1 below. No device discovery, installation, runtime audio probe, USB claim or call was performed for this update. Offline descriptor acceptance does not establish working playback, microphone fallback or restoration. Version 0.2 build, metadata and signature receipts are retained locally under ignored `evidence/0.2/`.
+
+## Version 0.1 historical validation (2026-11-11)
 
 | Check | Result | What it establishes |
 | --- | --- | --- |
@@ -16,7 +52,7 @@ Build environment: Windows, JDK 21.0.11, Gradle 8.11.1, Android Gradle Plugin 8.
 
 An initial sandbox build could not access dependencies; an approved standard build path resolved that environment limitation. Lint then exposed API/declaration issues, which were corrected before the passing final build. One narrowly documented `ForegroundServicePermission` detector suppression remains on the connected-device service: this version of lint does not recognize the documented `UsbManager.requestPermission()` alternative. The activity requests USB permission and the service checks it before foreground promotion. No unrelated network/Bluetooth permission or lint baseline was added. [Android foreground-service USB prerequisite](https://developer.android.com/about/versions/14/changes/fgs-types-required#connected-device).
 
-Artifact SHA-256:
+Version 0.1 artifact SHA-256 (the app output path is reused by subsequent builds):
 
 ```text
 app/build/outputs/apk/debug/app-debug.apk
@@ -28,10 +64,12 @@ shell-helper/build/usb-audio-shell-probe.jar
 
 These generated outputs are excluded from source control. Original build/lint failures and final APK-inspection receipts are retained locally in ignored `evidence/`; phone dumps and personal reports are not part of the public source.
 
-## Physical acceptance still blocked
+## Physical routing acceptance still pending
 
-Pixel 8 Pro is the reported target, not a detected handset. **No actual device model, OS/build, DAC VID:PID, configuration/interface descriptors, route or policy dump was observed.** No APK was installed or opened on a phone or emulator. No microphone recording, playback, USB claim, shell probe execution, Discord test or telephone call occurred.
+No phone or emulator was available to the developer during initial validation. A subsequent user-supplied version 0.1 report on 2026-11-14 documents app startup, Android audio-device inventory and USB descriptor inspection on a phone. The exact descriptor bytes were reconciled with the report's SHA-256; the original parser's HID rejection was reproduced offline. The public regression fixture retains this topology with anonymized vendor/product and string-index fields. Private phone build details and diagnostic reports are excluded from publication.
 
-Unverified: permission-dialog and foreground-service behavior; actual descriptors and gate eligibility; claim success; continuing USB output; default built-in input fallback; release/driver restoration; shell permission/method availability; Discord/call behavior. No end-to-end success or universal no-root fix is claimed.
+The initial report contained descriptor inspection only. A later user-supplied version 0.2 report records an active default recorder routed to USB, an explicitly preferred built-in recorder routed to the phone microphone, and USB playback routing before an experiment. The user confirmed seeing a successful interface claim before subsequent microphone probes; the later default recorder still selected USB. This does not establish the desired fallback. Version 0.2 retained only the final service status, so the exported report could not independently reconstruct claim/release timing. Version 0.3 adds bounded in-memory lifecycle history and probe-context snapshots to address that reporting gap without changing USB behavior.
+
+Post-claim USB playback/audibility, driver restoration, shell capability and Discord/telephone-call routing remain unverified. No working global microphone override is claimed. The appropriate next check is the existing read-only shell probe, rather than repeated USB capture claims.
 
 Use [the minimal phone test](PHONE-TEST.md). Start with inspection and read-only capability evidence. If the claim fails to preserve playback or default input remains USB/silent, stop and replug rather than expanding claims. If the shell has the required routing authority, evaluate an explicitly bounded input-only policy change with restoration in a later device-backed change; that mutation is not implemented here.

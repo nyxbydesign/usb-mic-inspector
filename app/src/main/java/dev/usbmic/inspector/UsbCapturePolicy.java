@@ -49,6 +49,11 @@ public final class UsbCapturePolicy {
         Terminal(int subtype, int type) { this.subtype = subtype; this.type = type; }
     }
 
+    private static final class Hid {
+        int endpoints;
+        boolean descriptor;
+    }
+
     private static final class Refusal extends Exception {
         Refusal(String message) { super(message); }
     }
@@ -84,9 +89,13 @@ public final class UsbCapturePolicy {
         Set<Integer> interfaceIds = new HashSet<>();
         Set<String> alternateIds = new HashSet<>();
         Set<Integer> collection = new HashSet<>();
-        int controlId = -1, subclass = -1, controlBytes = 0, declaredControlBytes = -1;
+        Map<Integer, Integer> interfaceRoles = new HashMap<>();
+        Map<Integer, Integer> endpointOwners = new HashMap<>();
+        int controlId = -1, hidId = -1, currentClass = -1, currentId = -1;
+        int subclass = -1, controlBytes = 0, declaredControlBytes = -1;
         boolean header = false;
         Alt current = null;
+        Hid currentHid = null;
 
         for (int offset = 27; offset < raw.length;) {
             require(offset + 2 <= raw.length, "truncated descriptor header");
@@ -96,6 +105,7 @@ public final class UsbCapturePolicy {
                     .append(" length=").append(length);
             if (type == 4) {
                 finishAlt(current);
+                finishHid(currentHid);
                 require(length == 9, "invalid interface descriptor");
                 int id = u(raw, offset + 2), alternate = u(raw, offset + 3);
                 int count = u(raw, offset + 4), clazz = u(raw, offset + 5);
@@ -104,12 +114,26 @@ public final class UsbCapturePolicy {
                 report.append(" interface=").append(id).append(" alt=").append(alternate)
                         .append(" class=").append(clazz).append(" subclass=").append(subclass)
                         .append(" protocol=").append(protocol).append(" endpoints=").append(count);
-                require(clazz == 1 && protocol == 0 && (subclass == 1 || subclass == 2),
-                        "only UAC1 AudioControl and AudioStreaming interfaces are supported");
+                boolean audio = clazz == 1 && protocol == 0 && (subclass == 1 || subclass == 2);
+                boolean hid = clazz == 3 && subclass == 0 && protocol == 0;
+                require(audio || hid,
+                        "only UAC1 audio and a separate nonboot generic HID interface are supported");
+                int role = clazz << 8 | subclass;
+                Integer priorRole = interfaceRoles.put(id, role);
+                require(priorRole == null || priorRole == role,
+                        "interface number has conflicting audio/HID roles");
                 require(alternateIds.add(id + ":" + alternate), "duplicate interface alternate setting");
                 interfaceIds.add(id);
                 current = null;
-                if (subclass == 1) {
+                currentHid = null;
+                currentClass = clazz;
+                currentId = id;
+                if (hid) {
+                    require(hidId == -1 && alternate == 0 && count == 1,
+                            "only one separate HID interface, alt zero with one endpoint, is supported");
+                    hidId = id;
+                    currentHid = new Hid();
+                } else if (subclass == 1) {
                     require(controlId == -1 && alternate == 0 && count == 0,
                             "control interface must be unique, alt zero and endpoint-free");
                     controlId = id;
@@ -121,6 +145,16 @@ public final class UsbCapturePolicy {
                     current.id = id; current.alt = alternate; current.expectedEndpoints = count;
                     stream.alts.add(current);
                 }
+            } else if (type == 0x21) {
+                require(currentClass == 3 && currentHid != null && !currentHid.descriptor
+                                && currentHid.endpoints == 0 && length == 9,
+                        "HID descriptor must be unique and precede its endpoint");
+                require(word(raw, offset + 2) == 0x0111 && u(raw, offset + 4) <= 35
+                                && u(raw, offset + 5) == 1 && u(raw, offset + 6) == 0x22
+                                && word(raw, offset + 7) > 0,
+                        "only HID 1.11 with one positive-length report descriptor is supported");
+                currentHid.descriptor = true;
+                report.append(" HID 1.11 reportBytes=").append(word(raw, offset + 7));
             } else if (type == 0x24) {
                 require(length >= 3, "short class-specific interface descriptor");
                 int subtype = u(raw, offset + 2);
@@ -174,23 +208,37 @@ public final class UsbCapturePolicy {
                     } else { throw new Refusal("unsupported streaming descriptor subtype"); }
                 }
             } else if (type == 5) {
-                require(current != null && current.alt != 0 && (length == 7 || length == 9),
-                        "endpoint outside a supported active streaming interface");
+                require((current != null && current.alt != 0 && (length == 7 || length == 9))
+                                || (currentClass == 3 && currentHid != null && length == 7),
+                        "endpoint outside a supported streaming or separate HID interface");
                 int address = u(raw, offset + 2), attributes = u(raw, offset + 3);
                 report.append(" endpoint=0x").append(hex(address, 2))
-                        .append((address & 0x80) != 0 ? " IN (capture)" : " OUT (playback)")
+                        .append(currentClass == 3 ? " IN (HID interrupt)"
+                                : ((address & 0x80) != 0 ? " IN (capture)" : " OUT (playback)"))
                         .append(" attributes=0x").append(hex(attributes, 2));
                 require((address & 0x0f) != 0 && (address & 0x70) == 0,
                         "invalid endpoint address");
-                require((attributes & 3) == 1 && (attributes & 0xf0) == 0,
-                        "non-data isochronous or feedback endpoint is unsupported");
-                require(length != 9 || (u(raw, offset + 7) == 0 && u(raw, offset + 8) == 0),
-                        "synchronized/feedback endpoint linkage is unsupported");
-                require(word(raw, offset + 4) > 0, "zero packet size");
-                require(current.addresses.add(address), "duplicate endpoint address");
-                current.endpoints++;
-                int direction = (address & 0x80) != 0 ? 1 : 2;
-                current.direction |= direction;
+                Integer owner = endpointOwners.put(address, currentId);
+                require(owner == null || owner == currentId,
+                        "endpoint address is shared across interface numbers");
+                if (currentClass == 3) {
+                    require(currentHid.descriptor && currentHid.endpoints == 0
+                                    && (address & 0x80) != 0 && attributes == 3
+                                    && word(raw, offset + 4) > 0 && word(raw, offset + 4) <= 64
+                                    && u(raw, offset + 6) > 0,
+                            "HID requires one interrupt IN endpoint with packet size 1..64 and nonzero interval");
+                    currentHid.endpoints++;
+                } else {
+                    require((attributes & 3) == 1 && (attributes & 0xf0) == 0,
+                            "non-data isochronous or feedback endpoint is unsupported");
+                    require(length != 9 || (u(raw, offset + 7) == 0 && u(raw, offset + 8) == 0),
+                            "synchronized/feedback endpoint linkage is unsupported");
+                    require(word(raw, offset + 4) > 0, "zero packet size");
+                    require(current.addresses.add(address), "duplicate endpoint address");
+                    current.endpoints++;
+                    int direction = (address & 0x80) != 0 ? 1 : 2;
+                    current.direction |= direction;
+                }
             } else if (type == 0x25) {
                 require(current != null && !current.classEndpoint && current.endpoints == 1 && length == 7
                                 && u(raw, offset + 2) == 1,
@@ -203,12 +251,14 @@ public final class UsbCapturePolicy {
             offset += length;
         }
         finishAlt(current);
+        finishHid(currentHid);
         require(controlId >= 0 && !streams.containsKey(controlId), "missing or shared control interface");
         require(header && declaredControlBytes == controlBytes, "control descriptor total length mismatch");
         for (int source : entitySources) {
             require(entityIds.contains(source), "audio entity references a missing source");
         }
         require(interfaceIds.size() == expectedInterfaces, "configuration interface count mismatch");
+        require(hidId < 0 || !collection.contains(hidId), "HID interface must not be in the audio control collection");
         require(collection.equals(streams.keySet()), "control collection does not exactly cover streams");
         require(streams.size() == 2, "only exactly one playback and one separate capture interface are supported");
         int capture = -1, playback = -1;
@@ -234,7 +284,9 @@ public final class UsbCapturePolicy {
         require(capture >= 0 && playback >= 0 && capture != playback,
                 "separate capture and playback interfaces were not demonstrated");
         return new Result(capture, "Descriptors show separate UAC1 capture-only interface " + capture
-                + " and playback interface " + playback + ". Manual experiment only.", report.toString());
+                + " and playback interface " + playback
+                + (hidId < 0 ? "" : "; separate HID interface " + hidId + " is never claimed")
+                + ". Manual experiment only.", report.toString());
     }
 
     private static void finishAlt(Alt alt) throws Refusal {
@@ -246,6 +298,11 @@ public final class UsbCapturePolicy {
             require(alt.endpoints == 1 && alt.general && alt.format,
                     "active stream needs exactly one data endpoint, general and format descriptors");
         }
+    }
+
+    private static void finishHid(Hid hid) throws Refusal {
+        require(hid == null || (hid.descriptor && hid.endpoints == 1),
+                "HID interface needs its complete descriptor and exactly one interrupt IN endpoint");
     }
 
     private static int u(byte[] data, int offset) { return data[offset] & 0xff; }

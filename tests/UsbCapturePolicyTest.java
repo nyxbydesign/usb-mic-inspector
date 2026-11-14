@@ -2,7 +2,7 @@ import dev.usbmic.inspector.UsbCapturePolicy;
 import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
 
-/** Synthetic fixtures exercise refusal boundaries; they are not observed phone descriptors. */
+/** Synthetic and anonymized descriptor fixtures; no fixture proves physical routing behavior. */
 public final class UsbCapturePolicyTest {
     private static int checks;
 
@@ -65,7 +65,150 @@ public final class UsbCapturePolicyTest {
         byte[] controlOnly = Arrays.copyOf(valid, 88);
         setWord(controlOnly, 20, controlOnly.length - 18);
         expect(controlOnly, -1, "control only");
-        System.out.println("PASS: " + checks + " descriptor-policy assertions; synthetic descriptors only");
+        separateHidCases();
+        System.out.println("PASS: " + checks + " descriptor-policy assertions; synthetic/anonymized descriptors only");
+    }
+
+    private static void separateHidCases() {
+        byte[] hid = separateHidFixture();
+        if (hid.length != 289 || (hid[8] & 255) != 0x34 || (hid[9] & 255) != 0x12
+                || (hid[10] & 255) != 0x78 || (hid[11] & 255) != 0x56
+                || hid[14] != 0 || hid[15] != 0 || hid[16] != 0) {
+            throw new AssertionError("regression fixture must remain anonymized");
+        }
+        expect(hid, 1, "separate capture 1, playback 2, HID 3");
+        int hidInterface = find(hid, 4, 2, 3, 0);
+        int hidDescriptor = hidInterface + 9;
+        int hidEndpoint = hidDescriptor + 9;
+        byte[] hidFirst = new byte[hid.length];
+        System.arraycopy(hid, 0, hidFirst, 0, 27);
+        System.arraycopy(hid, hidInterface, hidFirst, 27, hid.length - hidInterface);
+        System.arraycopy(hid, 27, hidFirst, 27 + hid.length - hidInterface, hidInterface - 27);
+        expect(hidFirst, 1, "HID first: no stale audio parser context");
+        expect(fixtureWithHid(), 2, "synthetic original topology plus optional HID");
+
+        for (int length = hidInterface + 1; length < hid.length; length++) {
+            byte[] truncated = Arrays.copyOf(hid, length);
+            setWord(truncated, 20, length - 18);
+            expect(truncated, -1, "truncated HID with reconciled configuration length " + length);
+        }
+        mutate(hid, hidInterface + 2, 1, "HID aliases capture interface number");
+        mutate(hid, hidInterface + 2, 0, "HID aliases control interface number");
+        mutate(hid, hidInterface + 2, 2, "HID aliases playback interface number");
+        mutate(hid, hidInterface + 3, 1, "HID alternate one");
+        mutate(hid, hidInterface + 4, 0, "HID endpoint count zero");
+        mutate(hid, hidInterface + 4, 2, "HID endpoint count two");
+        mutate(hid, hidInterface + 5, 0xff, "unknown extra interface class");
+        mutate(hid, hidInterface + 6, 1, "boot HID subclass");
+        mutate(hid, hidInterface + 7, 1, "keyboard HID protocol");
+        mutate(hid, hidDescriptor, 8, "short HID descriptor");
+        mutate(hid, hidDescriptor + 1, 0x23, "unknown descriptor type");
+        mutate(hid, hidDescriptor + 2, 0x10, "unsupported HID version");
+        mutate(hid, hidDescriptor + 4, 36, "reserved HID country code");
+        mutate(hid, hidDescriptor + 5, 0, "HID report descriptor count zero");
+        mutate(hid, hidDescriptor + 5, 2, "HID report descriptor count two");
+        mutate(hid, hidDescriptor + 6, 0x23, "HID non-report descriptor");
+        mutate(hid, hidDescriptor + 7, 0, "HID report length zero");
+        mutate(hid, hidEndpoint + 2, 5, "HID OUT endpoint");
+        mutate(hid, hidEndpoint + 2, 0x80, "HID endpoint zero");
+        mutate(hid, hidEndpoint + 2, 0x95, "HID endpoint reserved address bits");
+        mutate(hid, hidEndpoint + 2, 0x83, "HID endpoint aliases capture endpoint");
+        mutate(hidFirst, 47, 0x83, "HID-first endpoint aliases later capture endpoint");
+        mutate(hid, hidEndpoint + 3, 1, "HID isochronous endpoint");
+        mutate(hid, hidEndpoint + 3, 2, "HID bulk endpoint");
+        mutate(hid, hidEndpoint + 3, 0x83, "HID reserved endpoint attribute bits");
+        mutate(hid, hidEndpoint + 4, 0, "HID zero packet size");
+        mutate(hid, hidEndpoint + 4, 65, "HID packet exceeds supported 64 bytes");
+        mutate(hid, hidEndpoint + 5, 8, "HID reserved/high bandwidth packet bits");
+        mutate(hid, hidEndpoint + 6, 0, "HID zero interval");
+        mutate(hid, 45, 3, "HID inserted in audio control collection");
+        mutate(hid, 22, 3, "HID omitted from interface count");
+
+        byte[] duplicate = insert(hid, hidEndpoint, Arrays.copyOfRange(hid, hidDescriptor, hidEndpoint));
+        expect(duplicate, -1, "duplicate HID class descriptor");
+        duplicate = insert(hid, hid.length, Arrays.copyOfRange(hid, hidInterface, hid.length));
+        expect(duplicate, -1, "duplicate HID interface alternate");
+        duplicate[hid.length + 2] = 4;
+        duplicate[22] = 5;
+        expect(duplicate, -1, "second separate HID interface");
+        duplicate = insert(hid, hid.length, Arrays.copyOfRange(hid, hidEndpoint, hid.length));
+        expect(duplicate, -1, "extra HID endpoint");
+        byte[] missing = remove(hid, hidDescriptor, 9);
+        expect(missing, -1, "HID endpoint without HID descriptor");
+        missing = remove(hid, hidEndpoint, 7);
+        expect(missing, -1, "HID descriptor without endpoint");
+        byte[] misplaced = insert(hid, hidInterface, Arrays.copyOfRange(hid, hidDescriptor, hidEndpoint));
+        expect(misplaced, -1, "HID descriptor in audio streaming context");
+        byte[] roleConflict = hid.clone();
+        roleConflict[hidInterface + 2] = 1;
+        roleConflict[hidInterface + 3] = 2;
+        expect(roleConflict, -1, "HID role conflicts with capture across distinct alternates");
+        byte[] secondCapture = hid.clone();
+        secondCapture[hidInterface + 5] = 1;
+        secondCapture[hidInterface + 6] = 2;
+        expect(secondCapture, -1, "extra HID cannot become audio streaming by class mutation");
+    }
+
+    private static void mutate(byte[] original, int offset, int value, String label) {
+        byte[] changed = original.clone();
+        changed[offset] = (byte) value;
+        expect(changed, -1, label);
+    }
+
+    private static byte[] insert(byte[] original, int offset, byte[] addition) {
+        byte[] changed = new byte[original.length + addition.length];
+        System.arraycopy(original, 0, changed, 0, offset);
+        System.arraycopy(addition, 0, changed, offset, addition.length);
+        System.arraycopy(original, offset, changed, offset + addition.length, original.length - offset);
+        setWord(changed, 20, changed.length - 18);
+        return changed;
+    }
+
+    private static byte[] remove(byte[] original, int offset, int length) {
+        byte[] changed = new byte[original.length - length];
+        System.arraycopy(original, 0, changed, 0, offset);
+        System.arraycopy(original, offset + length, changed, offset, original.length - offset - length);
+        setWord(changed, 20, changed.length - 18);
+        return changed;
+    }
+
+    private static byte[] fixtureWithHid() {
+        ByteArrayOutputStream tail = new ByteArrayOutputStream();
+        add(tail, 9,4,3,0,1,3,0,0,0);
+        add(tail, 9,0x21,0x11,1,0,1,0x22,74,0);
+        add(tail, 7,5,0x85,3,64,0,8);
+        byte[] base = fixture();
+        byte[] changed = insert(base, base.length, tail.toByteArray());
+        changed[22] = 4;
+        return changed;
+    }
+
+    /** Anonymized regression topology: identifiers 1234:5678 and device string indices cleared. */
+    private static byte[] separateHidFixture() {
+        String hex = "12010002000000403412785600010000"
+                + "000109020f0104010080320904000000"
+                + "010100000a2401000148000201020c24"
+                + "021e01020002030000000a24060e1e01"
+                + "02020200092403020101000e000c2402"
+                + "0301010002030000000a24060a030103"
+                + "000000092403040103000a0009040100"
+                + "00010200000904010101010200000724"
+                + "01020101000e2402010202100244ac00"
+                + "80bb0009058305c00001000007250101"
+                + "00000009040200000102000009040201"
+                + "0101020000072401030101000e240201"
+                + "0202100244ac0080bb00090502095802"
+                + "01000007250101020800090402020101"
+                + "020000072401030101000e2402010203"
+                + "180244ac0080bb000905020958020100"
+                + "00072501010208000904030001030000"
+                + "00092111010001224a00070585034000"
+                + "08";
+        byte[] raw = new byte[hex.length() / 2];
+        for (int i = 0; i < raw.length; i++) {
+            raw[i] = (byte) Integer.parseInt(hex.substring(i * 2, i * 2 + 2), 16);
+        }
+        return raw;
     }
 
     private static void expect(byte[] raw, int id, String label) {
