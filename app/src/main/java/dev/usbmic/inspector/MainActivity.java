@@ -173,7 +173,7 @@ public final class MainActivity extends Activity {
     }
 
     private String completeReport() {
-        return "USB Mic Inspector 0.1-diagnostic\nNo global routing result has been established by this report.\n"
+        return "USB Mic Inspector 0.2-diagnostic\nNo global routing result has been established by this report.\n"
                 + CaptureClaimService.status + "\n" + report;
     }
 
