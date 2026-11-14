@@ -40,6 +40,20 @@ enable debugging, pair a device, or start a probe automatically. LADB can run th
 same device-side `CLASSPATH=... app_process ...` command once the jar has been
 placed in `/data/local/tmp` through an authorized transfer.
 
+Prebuilt release assets include `usb-audio-shell-probe.jar`; there is no need to
+rebuild it to collect the same read-only inventory. For a phone-only LADB workflow,
+download that exact filename into the phone's `Download` folder, then run:
+
+```sh
+cp /sdcard/Download/usb-audio-shell-probe.jar /data/local/tmp/usb-audio-shell-probe.jar
+CLASSPATH=/data/local/tmp/usb-audio-shell-probe.jar app_process /system/bin dev.usbmic.inspector.shell.ShellAudioProbe probe
+```
+
+If the file is missing, storage access is denied, or an API is unavailable, retain
+the error and stop. Do not grant extra permissions or change security settings to
+force the probe through. A successful probe can report a permission as `DENIED`;
+that is useful evidence, not a request to grant it.
+
 Review output before sharing it privately. USB addresses are needed to identify
 the exact policy port; do not publish personal diagnostic output. The helper
 omits device serial numbers, product names, recording identities and full dumps.

@@ -123,6 +123,7 @@ public final class MainActivity extends Activity {
         claimButton = button(body, "Review capture-only experiment", view -> confirmClaim());
         claimButton.setEnabled(false);
         button(body, "Release / restore USB interface", view -> {
+            ExperimentHistory.record("Activity explicitly requested release; " + CaptureClaimService.experimentSnapshot());
             stopProbe();
             startService(new Intent(this, CaptureClaimService.class).setAction(CaptureClaimService.ACTION_RELEASE));
         });
@@ -173,8 +174,16 @@ public final class MainActivity extends Activity {
     }
 
     private String completeReport() {
-        return "USB Mic Inspector 0.2-diagnostic\nNo global routing result has been established by this report.\n"
-                + CaptureClaimService.status + "\n" + report;
+        return "USB Mic Inspector 0.3-diagnostic\nNo global routing result has been established by this report.\n"
+                + "Current experiment snapshot (best effort): " + CaptureClaimService.experimentSnapshot() + "\n"
+                + ExperimentHistory.snapshot() + "\nCurrent activity diagnostics:\n" + report;
+    }
+
+    private void probeEvent(String message) {
+        String evidence = message + "\nContemporaneous experiment snapshot (best effort): "
+                + CaptureClaimService.experimentSnapshot();
+        ExperimentHistory.record(evidence);
+        append(evidence);
     }
 
     private void inventory() {
@@ -300,7 +309,7 @@ public final class MainActivity extends Activity {
         final AudioDeviceInfo requested = preferred;
         probing = true;
         cancelled.set(false);
-        append("Starting explicit 3-second local mic probe, source=" + selectedSource + ", preference=" + (builtIn ? "built-in" : "none/default") + ".");
+        probeEvent("Starting explicit 3-second local mic probe, source=" + selectedSource + ", preference=" + (builtIn ? "built-in" : "none/default") + ".");
         new Thread(() -> {
             AudioRecord local = null;
             try {
@@ -316,6 +325,7 @@ public final class MainActivity extends Activity {
                 append("Local preferred-device request accepted=" + preferenceAccepted + "; actual route follows while reading.");
                 if (cancelled.get() || audio.getMode() != AudioManager.MODE_NORMAL) return;
                 local.startRecording();
+                probeEvent("Local microphone recording started.");
                 short[] samples = new short[2400];
                 long end = SystemClock.elapsedRealtime() + 3000;
                 long squareSum = 0;
@@ -329,15 +339,16 @@ public final class MainActivity extends Activity {
                     for (int i = 0; i < read; i++) squareSum += (long) samples[i] * samples[i];
                     sampleCount += read;
                     String route = audioDevice(local.getRoutedDevice());
-                    if (!route.equals(lastRoute)) { append("Actual active local mic route: " + route); lastRoute = route; }
+                    if (!route.equals(lastRoute)) { probeEvent("Actual active local mic route: " + route); lastRoute = route; }
                     AudioRecordingConfiguration configuration = local.getActiveRecordingConfiguration();
                     if (configuration != null) silenced |= configuration.isClientSilenced();
                     SystemClock.sleep(10);
                 }
                 double rms = sampleCount == 0 ? 0 : Math.sqrt((double) squareSum / sampleCount);
-                append(String.format(Locale.ROOT, "Mic probe: samples=%d RMS=%.2f/32768, clientSilencedObserved=%s. Silence does not prove a phantom mic. App-local result only.", sampleCount, rms, silenced));
-            } catch (RuntimeException failure) { append("Mic probe failed: " + failure); }
+                probeEvent(String.format(Locale.ROOT, "Mic probe: samples=%d RMS=%.2f/32768, clientSilencedObserved=%s. Silence does not prove a phantom mic. App-local result only.", sampleCount, rms, silenced));
+            } catch (RuntimeException failure) { probeEvent("Mic probe failed: " + failure); }
             finally {
+                probeEvent("Local microphone probe cleanup requested.");
                 recorder = null;
                 if (local != null) { try { local.stop(); } catch (RuntimeException ignored) {} local.release(); }
                 probing = false;
@@ -363,6 +374,7 @@ public final class MainActivity extends Activity {
         final AudioDeviceInfo requested = preferred;
         cancelled.set(false);
         probing = true;
+        probeEvent("Starting explicit USB playback probe.");
         new Thread(() -> {
             AudioTrack local = null;
             try {
@@ -378,6 +390,7 @@ public final class MainActivity extends Activity {
                 if (cancelled.get() || audio.getMode() != AudioManager.MODE_NORMAL) return;
                 append("Playback requested: " + audioDevice(requested));
                 local.play();
+                probeEvent("Local USB playback started.");
                 short[] samples = new short[2400];
                 int position = 0;
                 String lastRoute = "";
@@ -389,12 +402,13 @@ public final class MainActivity extends Activity {
                     if (written < 0) throw new IllegalStateException("AudioTrack.write error=" + written);
                     position += written;
                     String route = audioDevice(local.getRoutedDevice());
-                    if (!route.equals(lastRoute)) { append("Actual active playback route: " + route); lastRoute = route; }
+                    if (!route.equals(lastRoute)) { probeEvent("Actual active playback route: " + route); lastRoute = route; }
                     SystemClock.sleep(10);
                 }
-                append("Playback probe ended. Confirm audibility in the wired headphones yourself; route metadata alone does not prove sound reached them.");
-            } catch (RuntimeException failure) { append("Playback probe failed: " + failure); }
+                probeEvent("Playback probe ended. Confirm audibility in the wired headphones yourself; route metadata alone does not prove sound reached them.");
+            } catch (RuntimeException failure) { probeEvent("Playback probe failed: " + failure); }
             finally {
+                probeEvent("Local playback probe cleanup requested.");
                 player = null;
                 if (local != null) { try { local.stop(); } catch (RuntimeException ignored) {} local.release(); }
                 probing = false;
@@ -438,9 +452,16 @@ public final class MainActivity extends Activity {
                         .putExtra("device", selected.getDeviceName()).putExtra("interface", candidateId)
                         .putExtra("descriptorHash", descriptorHash).putExtra("idleConfirmed", true)
                         .putExtra("plannedCommunication", planned.isChecked());
+                ExperimentHistory.record("Activity explicitly requested capture claim: interface=" + candidateId
+                        + ", plannedCommunication=" + planned.isChecked() + "; " + CaptureClaimService.experimentSnapshot());
                 CaptureClaimService.starting = true;
                 try { startForegroundService(experiment); }
-                catch (RuntimeException failure) { CaptureClaimService.starting = false; append("Cannot start experiment: " + failure); }
+                catch (RuntimeException failure) {
+                    CaptureClaimService.starting = false;
+                    ExperimentHistory.record("startForegroundService failed: " + ExperimentHistory.failure(failure)
+                            + "; " + CaptureClaimService.experimentSnapshot());
+                    append("Cannot start experiment: " + failure);
+                }
                 dialog.dismiss();
             });
         });

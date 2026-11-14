@@ -2,6 +2,24 @@
 
 This record distinguishes build evidence, offline descriptor checks and physical-device acceptance. The exact source commits are supplied in the repository's pull requests and release metadata.
 
+## Version 0.3 validation (2026-11-14)
+
+This update changes report evidence only. A synchronized, bounded process-memory journal retains the most recent 96 events, each at most 1,024 characters, with UTC timestamps and a count of discarded older entries. It records requests, preflight failures, claim results, held state, release/timeout/detach cleanup and probe-time state snapshots. Copied/shared reports include this history after Release; process restart clears it. No new persistence, permissions, shell mutation or audio-device behavior was added.
+
+- Passed the affected Android `assembleDebug` and `lintDebug`; final lint reports `No issues found.`
+- Verified APK metadata: version code 3 / `0.3-diagnostic`, unchanged package, min API 34 and target/compile API 35. APK size: 76,049 bytes.
+- Verified the v2 signature and exact certificate continuity with versions 0.1 and 0.2.
+- Reviewed the instrumentation and bounds. The descriptor policy and native claim/release decision paths are unchanged; the existing 285-assertion version 0.2 policy evidence is reused without rerunning that workload.
+- Published and downloaded the existing read-only shell-helper JAR with the same previously validated SHA-256 listed below; no helper source change or rebuild was required.
+
+Version 0.3 APK SHA-256:
+
+```text
+07e508542fed6909774d34425fde0535eee657baa5de0860adcb9e8606bc4ae5
+```
+
+No version 0.3 device test, audio probe or USB claim was performed by the developer. Reporting behavior has build and source-review evidence, not phone acceptance. Receipts are retained locally in ignored `evidence/0.3/`.
+
 ## Version 0.2 validation (2026-11-14)
 
 - Reproduced the original HID rejection using the supplied descriptor bytes against the committed version 0.1 parser. The input length and SHA-256 matched the supplied report.
@@ -50,6 +68,8 @@ These generated outputs are excluded from source control. Original build/lint fa
 
 No phone or emulator was available to the developer during initial validation. A subsequent user-supplied version 0.1 report on 2026-11-14 documents app startup, Android audio-device inventory and USB descriptor inspection on a phone. The exact descriptor bytes were reconciled with the report's SHA-256; the original parser's HID rejection was reproduced offline. The public regression fixture retains this topology with anonymized vendor/product and string-index fields. Private phone build details and diagnostic reports are excluded from publication.
 
-The supplied report contains no active microphone or playback probe, USB claim, restoration result, shell probe, Discord test or telephone-call test. Those behaviors remain unverified. Descriptor eligibility checked offline is not evidence of successful kernel detach or microphone fallback. No end-to-end success or universal no-root fix is claimed.
+The initial report contained descriptor inspection only. A later user-supplied version 0.2 report records an active default recorder routed to USB, an explicitly preferred built-in recorder routed to the phone microphone, and USB playback routing before an experiment. The user confirmed seeing a successful interface claim before subsequent microphone probes; the later default recorder still selected USB. This does not establish the desired fallback. Version 0.2 retained only the final service status, so the exported report could not independently reconstruct claim/release timing. Version 0.3 adds bounded in-memory lifecycle history and probe-context snapshots to address that reporting gap without changing USB behavior.
+
+Post-claim USB playback/audibility, driver restoration, shell capability and Discord/telephone-call routing remain unverified. No working global microphone override is claimed. The appropriate next check is the existing read-only shell probe, rather than repeated USB capture claims.
 
 Use [the minimal phone test](PHONE-TEST.md). Start with inspection and read-only capability evidence. If the claim fails to preserve playback or default input remains USB/silent, stop and replug rather than expanding claims. If the shell has the required routing authority, evaluate an explicitly bounded input-only policy change with restoration in a later device-backed change; that mutation is not implemented here.

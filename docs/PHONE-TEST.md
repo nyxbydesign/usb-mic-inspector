@@ -13,6 +13,8 @@ No physical-phone verification has been performed. Do not start with a real call
 
 If the strict gate refuses the DAC, do not edit the gate merely to enable a trial. Review the descriptors. The shell-policy route may be a better next investigation if its read-only probe confirms capability; its mutation/restoration flow is intentionally not implemented without device evidence.
 
+If a capture claim reports success but a subsequent default microphone probe still uses USB, stop that experiment and release/replug. A successful claim does not notify Android to remove the input policy port. Do not repeat the claim simply to get another result. Collect the read-only shell capability report next; it checks existing permissions and method availability without changing routing. Version 0.3 retains timestamped claim/release history in process memory and includes contemporaneous experiment state in local probe entries, so later reports can distinguish a successful claim, a refused attempt and release without a held interface.
+
 Optional private ADB observations, run manually against the intended phone:
 
 ```text

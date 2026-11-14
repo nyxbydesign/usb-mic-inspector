@@ -4,7 +4,7 @@ A standalone Android diagnostic prototype for a USB DAC that advertises a microp
 
 The app lists USB interfaces, alternate settings, endpoints, raw descriptors and Android audio devices. Explicit short probes report the **actual route of this app's active AudioRecord/AudioTrack**, along with capture status. A preferred device being accepted does not prove it was used, and an app-local result does not prove Discord or telephone-call routing.
 
-No microphone samples are saved. Reports are shared only through a deliberate user action. Review reports before sharing: descriptors, device names and audio addresses can identify hardware. Do not post personal phone diagnostics to a public issue by default.
+No microphone samples are saved. Reports are shared only through a deliberate user action. Experiment lifecycle events are retained in bounded process memory and included in reports; they reset when the app process restarts. Probe entries include the current experiment state so a final Release status does not erase evidence of an earlier claim attempt. Review reports before sharing: descriptors, device names and audio addresses can identify hardware. Do not post personal phone diagnostics to a public issue by default.
 
 ## Build
 
@@ -33,3 +33,5 @@ The app never claims an audio-control or playback interface, changes the USB con
 See [source-backed research](docs/RESEARCH.md) and [validation](docs/VALIDATION.md). Version 0.2 handles the separate HID interface that caused version 0.1 to refuse the user-supplied descriptor topology. The descriptor report has been checked offline; continued physical playback, microphone fallback, restoration, Discord and telephony behavior remain unverified.
 
 Within no-root and no-hardware-change constraints, useful next steps are: run the read-only shell probe; use a target app's independent input/output selector if it actually offers one; submit the captured descriptor and routing evidence privately to the app/OEM when policy cannot be overridden. There is no demonstrated universal no-root fix in this project.
+
+If a claim reports success but the default recorder still uses USB, release/replug and stop repeating that experiment. The next useful evidence is the [read-only shell capability probe](shell-helper/README.md), also provided as a release JAR. It checks the actual shell caller's permissions and API availability without changing audio policy.
